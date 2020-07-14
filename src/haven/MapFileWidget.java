@@ -57,7 +57,7 @@ public class MapFileWidget extends Widget {
     private Coord dsc, dmc;
     private boolean hmarkers = false;
 
-    public MapFileWidget(MapFile file, Coord sz) {
+    public MapFileWidget(MapFile file) {
 	super();
 	this.file = file;
     }
@@ -169,20 +169,21 @@ public class MapFileWidget extends Widget {
 	public final Text tip;
 	public Area hit;
 	private Resource.Image img;
+	private Coord imgsz;
 	private Coord cc;
 
 	static {
 	    Resource flag = Resource.local().loadwait("gfx/hud/mmap/flag");
 	    flagbg = flag.layer(Resource.imgc, 1);
 	    flagfg = flag.layer(Resource.imgc, 0);
-	    flagcc = flag.layer(Resource.negc).cc;
+	    flagcc = UI.scale(flag.layer(Resource.negc).cc);
 	}
 
 	public DisplayMarker(Marker marker) {
 	    this.m = marker;
 	    this.tip = Text.render(m.nm);
 	    if(marker instanceof PMarker)
-		this.hit = Area.sized(flagcc.inv(), flagbg.sz);
+		this.hit = Area.sized(flagcc.inv(), UI.scale(flagbg.sz));
 	}
 
 	public void draw(GOut g, Coord c) {
@@ -198,10 +199,11 @@ public class MapFileWidget extends Widget {
 		    if(cc == null) {
 			Resource res = MapFile.loadsaved(Resource.remote(), sm.res);
 			img = res.layer(Resource.imgc);
+			imgsz = UI.scale(img.sz);
 			Resource.Neg neg = res.layer(Resource.negc);
-			cc = (neg != null)?neg.cc:img.sz.div(2);
+			cc = (neg != null)?neg.cc:imgsz.div(2);
 			if(hit == null)
-			    hit = Area.sized(cc.inv(), img.sz);
+			    hit = Area.sized(cc.inv(), imgsz);
 		    }
 		} catch(Loading l) {
 		} catch(Exception e) {
@@ -232,8 +234,8 @@ public class MapFileWidget extends Widget {
     private void redisplay(Location loc) {
 	Coord hsz = sz.div(2);
 	Coord zmaps = cmaps.mul(1 << zoomlevel);
-	Area next = Area.sized(loc.tc.sub(hsz.mul(1 << zoomlevel)).div(zmaps),
-			       sz.add(cmaps).sub(1, 1).div(cmaps).add(1, 1));
+	Area next = Area.sized(loc.tc.sub(hsz.mul(UI.unscale((float) (1 << zoomlevel)))).div(zmaps).sub(1, 1),
+	    UI.unscale(sz.add(cmaps).sub(1, 1).div(cmaps)).add(2, 2));
 	if((display == null) || (loc.seg != dseg) || (zoomlevel != dlvl) || !next.equals(dgext)) {
 	    DisplayGrid[] nd = new DisplayGrid[next.rsz()];
 	    if((display != null) && (loc.seg == dseg) && (zoomlevel == dlvl)) {
@@ -255,7 +257,7 @@ public class MapFileWidget extends Widget {
 	Location curloc = this.curloc;
 	if((curloc == null) || (curloc.seg != loc.seg))
 	    return(null);
-	return(loc.tc.sub(curloc.tc).div(1 << dlvl).add(sz.div(2)));
+	return(loc.tc.sub(curloc.tc).div(scalef()).add(sz.div(2)));
     }
 
     public void draw(GOut g) {
@@ -274,7 +276,6 @@ public class MapFileWidget extends Widget {
 		file.lock.readLock().unlock();
 	    }
 	}
-	Coord zmaps = cmaps.mul(1 << dlvl);
 	for(Coord c : dgext) {
 	    Tex img;
 	    try {
@@ -284,15 +285,15 @@ public class MapFileWidget extends Widget {
 	    } catch(Loading l) {
 		continue;
 	    }
-	    Coord ul = c.mul(cmaps).sub(loc.tc.div(1 << dlvl)).add(hsz);
-	    g.image(img, ul);
+	    Coord ul = UI.scale(c.mul(cmaps)).sub(loc.tc.div(scalef())).add(hsz);
+	    g.image(img, ul, UI.scale(img.sz()));
 	}
 	if(!hmarkers) {
 	    if((markers == null) || (file.markerseq != markerseq))
-		remark(loc, dtext.margin(cmaps.mul(1 << dlvl)));
+		remark(loc, dtext.margin(cmaps.mul(scalef())));
 	    if(markers != null) {
 		for(DisplayMarker mark : markers)
-		    mark.draw(g, mark.m.tc.sub(loc.tc).div(1 << dlvl).add(hsz));
+		    mark.draw(g, mark.m.tc.sub(loc.tc).div(scalef()).add(hsz));
 	    }
 	}
     }
@@ -345,7 +346,7 @@ public class MapFileWidget extends Widget {
     private DisplayMarker markerat(Coord tc) {
 	if(!hmarkers && (markers != null)) {
 	    for(DisplayMarker mark : markers) {
-		if((mark.hit != null) && mark.hit.contains(tc.sub(mark.m.tc).div(1 << dlvl)))
+		if((mark.hit != null) && mark.hit.contains(tc.sub(mark.m.tc).div(scalef())))
 		    return(mark);
 	    }
 	}
@@ -355,7 +356,7 @@ public class MapFileWidget extends Widget {
     public boolean mousedown(Coord c, int button) {
 	Coord tc = null;
 	if(curloc != null)
-	    tc = c.sub(sz.div(2)).mul(1 << dlvl).add(curloc.tc);
+	    tc = c.sub(sz.div(2)).mul(scalef()).add(curloc.tc);
 	if(tc != null) {
 	    DisplayMarker mark = markerat(tc);
 	    if((mark != null) && clickmarker(mark, button))
@@ -389,7 +390,7 @@ public class MapFileWidget extends Widget {
 	    if(dragging) {
 		setloc = null;
 		follow = false;
-		curloc = new Location(curloc.seg, dmc.add(dsc.sub(c).mul(1 << dlvl)));
+		curloc = new Location(curloc.seg, dmc.add(dsc.sub(c).mul(scalef())));
 	    } else if(c.dist(dsc) > 5) {
 		dragging = true;
 	    }
@@ -417,12 +418,16 @@ public class MapFileWidget extends Widget {
 
     public Object tooltip(Coord c, Widget prev) {
 	if(curloc != null) {
-	    Coord tc = c.sub(sz.div(2)).mul(1 << dlvl).add(curloc.tc);
+	    Coord tc = c.sub(sz.div(2)).mul(scalef()).add(curloc.tc);
 	    DisplayMarker mark = markerat(tc);
 	    if(mark != null) {
 		return(mark.tip);
 	    }
 	}
 	return(super.tooltip(c, prev));
+    }
+
+    private float scalef() {
+        return UI.unscale((float) (1 << dlvl));
     }
 }
